@@ -74,3 +74,42 @@ for 循环，go 程开启，chan 信道传数据，go 果然大道至简
 for 无限循环的话，是指会读取一次，也就是消息通过信道传递到用户，只会发生一次，这背后的逻辑是什么呢
 
 添加了修改用户名，这一块主要是在 DoMessage 中增加一个 else if，检测出现指定的消息，rename|后将进入设置用户名模式，将 rename|后的字符串设置为新的用户名，这里还有个逻辑，就是判断该用户名是不是已被使用，如果是，发送消息通知，否则进入修改用户名逻辑，也还是在互斥锁中，先删除 server 中用户 map 中的当前用户，在用新的用户名作为键与值对应
+
+## v7
+
+添加了超时踢人，这个功能是一个人如果规定时间内没有发言就强制下线，关闭链接，而他的实现方式是监听一个变量，也就是 isLive，这是一个信道变量，可以在 go 程中传递状态，在接受客户端消息发送时设置为 true，而有一个 select 阻塞，select 语句使一个 Go 程可以等待多个通信操作，两个 case，一个当 isLive 时不做任何动作只是更新 select，第二个是定时器，一旦触发，就会发送给客户端消息，并消耗 user 的信道 C，关闭链接，return 退出 Handel，准确说是退出当前 go 程的 handle，这里让我最疑惑的是 select，也就是他是一个等待信道来触发，然后执行相关的操作
+
+```go
+package main
+
+import "fmt"
+
+func fibonacci(c, quit chan int) {
+	x, y := 0, 1
+	for {
+		select {
+		case c <- x:
+			x, y = y, x+y
+		case <-quit:
+			fmt.Println("quit")
+			return
+		}
+	}
+}
+
+func main() {
+	c := make(chan int)
+	quit := make(chan int)
+	go func() {
+		for i := 0; i < 50; i++ {
+			fmt.Println(<-c)
+		}
+		quit <- 0
+	}()
+	fibonacci(c, quit)
+}
+```
+
+用这段代码解释下，这里是两个函数，一个斐波那契数列，一个是 main 主函数
+
+调用逻辑是这样的，首先 main 主函数两个信道变量，c 与 quit，一个 go 程，异步自动执行，
